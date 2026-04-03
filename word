@@ -1,6 +1,0 @@
-
- uv add langchian
- uv add langchian-openai
- uv add python-dotenv
-
- uv add langchain langchain-openai python-dotenv

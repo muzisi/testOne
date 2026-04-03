@@ -10,6 +10,9 @@ llm = ChatOpenAI(
     temperature=0.1,
     api_key=MINIMAX_API_KEY,
     base_url=MINIMAX_BASE_URL,
+    timeout=300,
+    max_tokens=2000,
+    max_retries=6,
     extra_body={"thinking": {"type": "enabled", "tokens": 1024}},
 )
 
