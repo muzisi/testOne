@@ -1,6 +1,6 @@
 
 from langchain_core.output_parsers import SimpleJsonOutputParser
-from my_llm import llm
+from agent.my_llm import llm
 
 
 parser = SimpleJsonOutputParser()

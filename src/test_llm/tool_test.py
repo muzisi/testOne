@@ -1,8 +1,6 @@
 from typing import Literal
 
 from langchain_core.messages import HumanMessage
-from langchain_core.tools import tool
-from my_llm import llm
 
 from pydantic import BaseModel,Field
 from langchain.tools import  tool,ToolRuntime

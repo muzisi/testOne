@@ -1,8 +1,4 @@
-import json
-
-from langchain_core.messages import human
-
-from my_llm import llm
+from agent.my_llm import llm
 
 from langchain.messages import HumanMessage,AIMessage,SystemMessage
 question = "用三句话，介绍机器学习"
