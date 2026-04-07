@@ -1,5 +1,5 @@
  {
-   "dependencies": ["./src"],
+   "dependencies": ["."],
        "graphs": {
             "agent": "./src/agent/my_agent1.py:agent"
        },

@@ -2,7 +2,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_openai import ChatOpenAI
 
-from env_utils import *
+from src.agent.env_utils import *
 
 # 普通 LLM
 llm = ChatOpenAI(

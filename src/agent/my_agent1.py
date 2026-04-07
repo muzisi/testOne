@@ -1,19 +1,12 @@
-from email.message import EmailMessage
+
 
 from langchain.agents import create_agent
+from src.agent.my_llm import structured_llm
 
-from my_llm import llm
-
-
-def send_mail(to: str, subject: str, body: str):
-    email = {
-        "to": to,
-        "subject": subject,
-        "body": body
-    }
+from src.agent.tools.get_weather import get_weather
 
 agent =create_agent(
-    llm,
-    tools=[send_mail],
-    system_prompt ="你是个发邮件助手，请始终使用 send_mail工具test"
+    structured_llm,
+    tools=[get_weather],
+    system_prompt ="你是个查询天气助手，请始终使用 send_mail工具test"
 )
