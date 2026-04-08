@@ -108,3 +108,50 @@
      靠 Checkpointer 持久化
      重启服务 / 切换 thread 就清空（除非存数据库）
      作用：让 Agent 记住本轮聊天历史，实现多轮对话。
+#### 三 内置中间建
+    一、整体作用
+      中间件 = 给 Agent 加装 “插件”不用改核心代码，就能实现：安全、限流、容错、记忆、审核、上下文管理等能力。
+     二、通用中间件（所有模型都能用）
+         1. SummarizationMiddleware（上下文总结）
+          快超 Token 时自动压缩旧消息，保留最近 N 条，防止上下文溢出；配置：trigger 触发条件、keep 保留条数
+         2. HumanInTheLoopMiddleware（人在循环）
+         工具执行前暂停 → 人工审核 / 编辑 / 拒绝 必须配合 checkpointer 记忆 配置：interrupt_on 指定哪些工具需要审核
+         3. ModelCallLimitMiddleware（模型调用次数限制）
+         限制模型调用次数，防死循环、控成本 ；thread_limit：会话总次数；run_limit：单次调用次数
+         4. ToolCallLimitMiddleware（工具调用次数限制）
+         限制全局 / 单个工具调用次数 ；可配置超限行为：继续 / 报错 / 停止
+         5. ModelFallbackMiddleware（模型故障转移）
+         主模型挂了，自动切备用模型；提高可用性、降成本
+         6. PIIMiddleware（隐私信息检测）
+         自动识别并处理隐私信息（手机号、邮箱、身份证等）策略：遮蔽、掩码、拦截、哈希支持自定义正则 / 函数检测
+         7. TodoListMiddleware（任务清单）
+         给 Agent 自动加任务规划与追踪能力
+         8. LLMToolSelectorMiddleware（工具智能筛选）
+           工具很多时，先用小模型挑出最相关的；减少 Token、提升准确率
+         9. ToolRetryMiddleware（工具自动重试）
+           工具失败自动指数退避重试 处理网络 / 接口波动
+         10. LLMToolEmulatorMiddleware（工具模拟器）
+           用 LLM 模拟工具返回 开发调试、无真实工具环境用
+         11. ContextEditingMiddleware（上下文编辑）
+           超 Token 时清理旧工具结果 ；保留最近 N 条工具返回
+         12. ShellToolMiddleware（Shell 执行）
+            给 Agent 开命令行权限
+            支持 Docker 安全沙箱
+         13. FilesystemFileSearchMiddleware（文件搜索）
+            提供文件搜索、内容检索工具
+           适合代码项目、文档检索
+#### 四 自定义中间件
+     在 Agent 执行流程的关键点插入自定义逻辑，不用改主流程。用途：日志、重试、缓存、校验、限流、动态切换模型 / 工具、异常拦截。
+######  二、两种核心 Hook 风格
+     1. Node-style hooks（节点式）
+        按顺序在固定节点运行适合：日志、校验、状态更新。
+        可用：
+        before_agent：Agent 启动前（一次）
+        before_model：每次调用模型前
+        after_model：每次模型返回后
+        after_agent：Agent 结束后（一次）
+    2. Wrap-style hooks（包裹式）
+       包裹模型 / 工具调用，控制执行次数适合：重试、降级、缓存、改写请求 / 响应。
+       可用：
+       wrap_model_call：包裹每次模型调用
+       wrap_tool_call：包裹每次工具调用
