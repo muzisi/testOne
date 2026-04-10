@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from logger import Logger
+from utils.logger import Logger
 
 @dataclass
 class DBConfig:
@@ -183,22 +183,34 @@ class MyDataSourceManager:
                         "foreign_keys": fk_constraints,
                         "indexes": indexes
                     })
+
                 return schemas
+
         except Exception as e:
             Logger.error(e)
             raise ValueError("获取表结构失败")
 
-    def execute_query(self, sql: str) -> Optional[tuple]:
-        """查询一条记录"""
+    def execute_query(self, sql: str) -> Optional[str]:
+        """查询一条记录，返回JSON字符串"""
+        import json
         with self.get_session() as session:
             result = session.execute(text(sql))
-            return result.fetchone()
+            row = result.fetchone()
+            if row is None:
+                return None
+            keys = result.keys()
+            return json.dumps(dict(zip(keys, row)), default=str, ensure_ascii=False)
 
-    def query_one(self, sql: str, params: dict = None) -> Optional[tuple]:
-        """查询一条记录"""
+    def query_one(self, sql: str, params: dict = None) -> Optional[str]:
+        """查询一条记录，返回JSON字符串"""
+        import json
         with self.get_session() as session:
             result = session.execute(text(sql), params or {})
-            return result.fetchone()
+            row = result.fetchone()
+            if row is None:
+                return None
+            keys = result.keys()
+            return json.dumps(dict(zip(keys, row)), default=str, ensure_ascii=False)
 
 
 if __name__ == "__main__":
@@ -213,8 +225,8 @@ if __name__ == "__main__":
     )
 
     db = MyDataSourceManager(pg_config)
-    tables = db.get_table_schema();
-    print(f"Tables: {tables}")
+   # tables = db.get_table_comments();
+   # print(f"Tables: {tables}")
     #tables_name = db.get_table_names();
     #print(f"tables_name:{tables_name}")
     tables_schema = db.get_table_schema();
