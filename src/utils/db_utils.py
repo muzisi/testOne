@@ -215,3 +215,7 @@ if __name__ == "__main__":
     db = MyDataSourceManager(pg_config)
     tables = db.get_table_schema();
     print(f"Tables: {tables}")
+    #tables_name = db.get_table_names();
+    #print(f"tables_name:{tables_name}")
+    tables_schema = db.get_table_schema();
+    print(f"tables_schema:{tables_schema}")
