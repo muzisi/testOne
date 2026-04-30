@@ -3,27 +3,21 @@
 set -e
 
 usage() {
-    echo "Usage: $0 <service-name> [target-path]"
+    echo "Usage: $0 [target-path]"
     echo ""
     echo "Create a new patch image based on baseVersion and apply file changes."
+    echo "The base image is searched using the baseVersion tag from patch_meta_info.json."
     echo ""
     echo "Arguments:"
-    echo "  service-name   Service name (e.g., aispl-web, aispl-engine)"
     echo "  target-path    Target path in container (default: /usr/hdp/2.5.3.0-37/aispl/aisplweb)"
     echo ""
     echo "Example:"
-    echo "  $0 aispl-web"
-    echo "  $0 aispl-web /custom/path"
+    echo "  $0"
+    echo "  $0 /custom/path"
     exit 1
 }
 
-if [[ $# -eq 0 ]]; then
-    usage
-fi
-
-SERVICE_NAME="$1"
-TARGET_PATH="${2:-/usr/hdp/2.5.3.0-37/aispl/aisplweb}"
-IMAGE_NAME="ailpha-registry:5000/${SERVICE_NAME}"
+TARGET_PATH="${1:-/usr/hdp/2.5.3.0-37/aispl/aisplweb}"
 META_FILE="lib_patch/patch_meta_info.json"
 LIB_PATCH_DIR="lib_patch"
 EXTRACT_HIGH="extract/high"
@@ -60,49 +54,35 @@ if [[ -z "$TARGET_VERSION" ]]; then
     exit 1
 fi
 
+# Search for image with tag exactly matching baseVersion
+echo ""
+echo "Searching for base image with tag: $BASE_VERSION"
+BASE_IMAGE_LINE=$(${NERDCTL_CMD} -n k8s.io images | grep "${BASE_VERSION}" | grep -v '<none>' | head -1)
+
+if [[ -z "$BASE_IMAGE_LINE" ]]; then
+    echo "Error: No image found with tag=$BASE_VERSION"
+    exit 1
+fi
+
+# Extract image name (everything before the tag)
+BASE_IMAGE_NAME=$(echo "$BASE_IMAGE_LINE" | awk '{print $1}')
+echo "Found base image: $BASE_IMAGE_NAME:$BASE_VERSION"
+
 echo "=========================================="
-echo "Service: $SERVICE_NAME"
-echo "Image: $IMAGE_NAME"
-echo "Base Version: $BASE_VERSION"
+echo "Base Image: $BASE_IMAGE_NAME:$BASE_VERSION"
 echo "Target Version: $TARGET_VERSION"
 echo "Target Path: $TARGET_PATH"
 echo "=========================================="
 
-# Query image tags
-echo ""
-echo "Querying available tags..."
-TAGS=$(${NERDCTL_CMD} -n k8s.io images | grep "${IMAGE_NAME}" | awk '{print $2}' | grep -v '<none>' | sort -u)
-
-if [[ -z "$TAGS" ]]; then
-    echo "No tags found for $IMAGE_NAME"
-    exit 1
-fi
-
-# Match baseVersion prefix
-FOUND=""
-while IFS= read -r tag; do
-    if [[ "$tag" == "$BASE_VERSION"* ]]; then
-        FOUND="$tag"
-        break
-    fi
-done <<< "$TAGS"
-
-if [[ -z "$FOUND" ]]; then
-    echo "Error: No matching tag found for baseVersion=$BASE_VERSION"
-    exit 1
-fi
-
-echo "Found matching tag: $FOUND"
-
 # Step 1: Pull base image
 echo ""
 echo "[1/6] Pulling base image..."
-${NERDCTL_CMD} -n k8s.io pull "${IMAGE_NAME}:${FOUND}"
+${NERDCTL_CMD} -n k8s.io pull "${BASE_IMAGE_NAME}:${BASE_VERSION}"
 
 # Step 2: Create container
 echo ""
 echo "[2/6] Creating temporary container..."
-CONTAINER_ID=$(${NERDCTL_CMD} -n k8s.io create "${IMAGE_NAME}:${FOUND}" /bin/bash)
+CONTAINER_ID=$(${NERDCTL_CMD} -n k8s.io create "${BASE_IMAGE_NAME}:${BASE_VERSION}" /bin/bash)
 echo "Container ID: $CONTAINER_ID"
 
 # Step 3: Copy directories from lib_patch (auto-discovery)
@@ -215,7 +195,7 @@ echo "[6/6] Committing new image..."
 # Ensure container is in a valid state for commit
 ${NERDCTL_CMD} -n k8s.io start "$CONTAINER_ID" 2>/dev/null || true
 sleep 1
-${NERDCTL_CMD} -n k8s.io commit "$CONTAINER_ID" "${IMAGE_NAME}:${TARGET_VERSION}"
+${NERDCTL_CMD} -n k8s.io commit "$CONTAINER_ID" "${BASE_IMAGE_NAME}:${TARGET_VERSION}"
 
 echo ""
 echo "Removing temporary container..."
@@ -224,5 +204,5 @@ ${NERDCTL_CMD} -n k8s.io rm -f "$CONTAINER_ID" 2>/dev/null || true
 echo ""
 echo "=========================================="
 echo "SUCCESS: New image created"
-echo "Image: ${IMAGE_NAME}:${TARGET_VERSION}"
+echo "Image: ${BASE_IMAGE_NAME}:${TARGET_VERSION}"
 echo "=========================================="

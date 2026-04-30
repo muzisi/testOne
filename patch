@@ -1,0 +1,242 @@
+● 这是一个对比两个升级包并生成补丁文件的脚本。以下是详细讲解：
+
+  核心功能
+
+  从当前目录找到新旧两个版本的升级包（ailpha-ext-*-v*.*.*.*_*），对比它们之间的差异，将有变化的文件拷贝到 lib_patch/ 目录，供后续 create_patch_image.sh 使用。
+
+  脚本流程
+
+  1. 准备阶段
+  - 设置解压密码 ePb%R7XW#$（硬编码）
+  - 从当前目录找到所有 ailpha-ext-*-v*.*.*.*_* 格式的升级包
+  - 通过 compare_versions() 函数比较版本号，找出最高版本和最低版本的包
+
+  2. 解压阶段
+
+  - 将高版本包解压到 extract/high/，低版本包解压到 extract/low/
+  - extract_zip() — 递归解压加密 zip 包（密码硬编码），并处理嵌套 zip
+  - extract_targz() — 递归解压 *.tar.gz
+
+  3. 对比阶段
+
+  - 在解压后的目录中查找 conf、lib、web 等目标子目录（
+  通过命令行参数指定）
+  - 对每个目录调用 compare_and_copy() 对比差异：
+    - lib 目录：特殊处理 ailpha-ext-*-dist.jar 文件，全部标记为需要拷贝
+    - web 目录：直接拷贝整个 web 目录（不做差异对比）
+    - 其他文件：通过 diff 对比，仅保留有变化的文件
+  - 差异类型标记：NEW（新增）、DIFF（有变化）、DIST（dist.jar）
+
+  4. 生成元数据
+
+  在 lib_patch/patch_meta_info.json 中写入：
+
+  {
+    "code": "ailpha-ext-aispl",
+    "type": "lib-patch",
+    "baseVersion": "v1.1.0.20_aisplweb_dev",   // 低版本全称
+    "targetVersion": "v1.1.0.21_aisplweb_dev", // 高版本全称
+    "description": "修复bug问题",
+    "timestamp": "2604281430"
+  }
+
+  关键目录结构
+
+  extract/
+    high/   ← 高版本解压内容
+    low/    ← 低版本解压内容
+  lib_patch/
+    conf/   ← 有差异的配置文件
+    lib/    ← 有差异的 lib 文件
+    web/    ← 整个 web 目录
+    patch_meta_info.json  ← 元数据
+
+  使用示例
+
+  ./upgrade_diff.sh                    # 对比 conf、lib、web（默认）
+  ./upgrade_diff.sh conf lib plugin     # 对比 conf、lib、plugin
+  ./upgrade_diff.sh conf                # 只对比 conf
+
+  注意事项
+
+  - 密码硬编码在脚本里，存在安全风险
+  - 整个 web 目录会被整体拷贝，不会做文件级差异对比
+  - 依赖 unzip、tar、diff、find 等命令
+
+● 已完成优化。使用方式：
+
+  # 查找 aispl 相关包
+  ./upgrade_diff_v1.1.sh aispl
+
+  # 查找 baas 相关包
+  ./upgrade_diff_v1.1.sh baas
+
+  # 指定比较目录
+  ./upgrade_diff_v1.1.sh baas conf lib
+
+  修改点：
+  1. 第一个参数改为 service-name（必选），用于过滤包名
+  2. 使用 find 替代 ls 进行模式匹配，避免 shell glob 解析问题
+  3. 更新了 usage 说明
+
+脚本流程
+
+  1. 参数检查 — 接收一个 service-name 参数（如 aispl-web、aispl-engine）
+  2. 读取元数据 — 从 lib_patch/patch_meta_info.json 提取 baseVersion（基准版本）
+  3. 查询已有镜像 — 用 nerdctl -n k8s.io images 列出该服务在 ailpha-registry:5000 上的所有 tags
+  4. 匹配基准版本 — 在 tags 中找一个与 baseVersion 前缀匹配的镜像（例如 baseVersion: v1.1.0.20_aisplweb 能匹配 v1.1.0.20_aisplweb_dev）
+  5. 创建新镜像（如果匹配成功）:
+    - nerdctl pull 拉取匹配的基准镜像
+    - nerdctl create 创建临时容器
+    - nerdctl cp 命令 替换文件相应对路下的，若存在则替换，若不存在则增加；
+       比如将本地 lib/ 目录下的文件复制到容器的 /usr/hdp/2.5.3.0-37/aispl/aisplweb/lib/ 下，
+       conf/嵌套文件替换到对应的路径下，比如conf/mapper/test.txt就复制或替换到/usr/hdp/2.5.3.0-37/aispl/aisplweb/conf/mapper/test/txt；其他路径文件类型
+    - 根据patch_meta_info中的excludes 删除镜像中低版本存在，高版本不存在的文件；也根据目录文件删除相应的文件；比如lib/test.jar 就删镜像/usr/hdp/2.5.3.0-37/aispl/aisplweb/lib/test.jar
+      conf/mapper/test.xml 就删除镜像/usr/hdp/2.5.3.0-37/aispl/aisplweb/conf/mapper/test.xml
+    - nerdctl commit 将容器提交为新镜像，tag 为 targetVersion
+    - nerdctl rm 清理临时容器
+
+  关键路径/变量
+
+  ┌─────────────┬──────────────────────────────────────┐
+  │    变量     │                  值                  │
+  ├─────────────┼──────────────────────────────────────┤
+  │ IMAGE_NAME  │ ailpha-registry:5000/${service-name} │
+  ├─────────────┼──────────────────────────────────────┤
+  │ META_FILE   │ lib_patch/patch_meta_info.json       │
+  ├─────────────┼──────────────────────────────────────┤
+  │ LIB_DIR     │ lib（要替换进镜像的文件目录）        │
+  ├─────────────┼──────────────────────────────────────┤
+  │ TARGET_PATH │ /usr/hdp/2.5.3.0-37/aispl/aisplweb   │
+  └─────────────┴──────────────────────────────────────┘
+
+  使用示例
+  TARGET_PATH 也优化为参数掺入，若没有参数默认为/usr/hdp/2.5.3.0-37/aispl/aisplweb
+
+  ./create_patch_image.sh aispl-web
+
+  脚本执行后会输出类似：
+  - 镜像已找到: ailpha-registry:5000/aispl-web:v1.1.0.20_aisplweb_dev
+  - 开始创建新镜像，targetVersion: xxx
+  - 新镜像创建成功: ailpha-registry:5000/aispl-web:xxx
+
+  简单来说，它就是一个基于现有镜像 + 本地 lib 补丁文件 → 打一个新 tag 镜像的自动化工具。
+
+
+  1. 功能概述
+
+  用途：基于已有的 Docker 镜像，通过补丁文件创建新的服务镜像
+
+  输入：
+  - service-name: 服务名（如 aispl-web）
+  - target-path: 容器内目标路径（可选，默认 /usr/hdp/2.5.3.0-37/aispl/aisplweb）
+  - lib_patch/: 本地补丁目录
+  - patch_meta_info.json: 版本元数据
+
+  输出：新的 Docker 镜像 ailpha-registry:5000/${service}:${targetVersion}
+
+  ---
+  2. 核心流程图
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  读取 patch_meta_info.json                                  │
+  │  提取 baseVersion → 用于匹配镜像 tag                         │
+  │  提取 targetVersion → 新镜像的 tag                          │
+  │  提取 excludes → 需要删除的文件列表                         │
+  └─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  [Step 1] 从镜像仓库 Pull 基础镜像                          │
+  │  镜像名: ailpha-registry:5000/${service}:${matched_tag}     │
+  └─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  [Step 2] 创建临时容器                                       │
+  │  以 bash 为入口，创建可写的容器                              │
+  └─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  [Step 3] 复制 lib_patch/ 目录                               │
+  │  动态发现：lib_patch 下有哪些目录就复制哪些                  │
+  │  - web/ → 全量替换 (删除目标内容，用源内容替代)              │
+  │  - 其他目录 (lib/, conf/, bin/) → 合并替换                  │
+  │                                                             │
+  │  例: lib_patch/lib/test.jar → 容器 $TARGET_PATH/lib/test.jar│
+  │  例: lib_patch/bin/run.sh → 容器 $TARGET_PATH/bin/run.sh   │
+  └─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  [Step 4] 复制 extract/high/ 内容                          │
+  │  extract/high 是高版本完整包，取其子目录覆盖                │
+  │  覆盖: bin/, conf/, lib/, plugins/, web/                    │
+  └─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  [Step 5] 删除文件 (两步)                                    │
+  │                                                             │
+  │  A. 根据 excludes 删除:                                       │
+  │     从 patch_meta_info.json 读取 excludes 列表               │
+  │     删除指定文件                                              │
+  │     例: "lib/xxx.jar" → 删除 $TARGET_PATH/lib/xxx.jar       │
+  │                                                             │
+  │  B. 差异同步删除:                                            │
+  │     对比 extract/low 和 extract/high                         │
+  │     low 有但 high 没有的文件 → 从容器中删除                  │
+  └─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  [Step 6] 提交新镜像 & 清理                                  │
+  │  - nerdctl commit: 将容器保存为新镜像                        │
+  │  - nerdctl rm: 删除临时容器                                 │
+  └─────────────────────────────────────────────────────────────┘
+
+  ---
+  3. 文件对应关系
+
+  ┌───────────────────────┬────────────────────────┬──────────┐
+  │      源文件/目录      │   目标路径 (容器内)    │ 替换方式 │
+  ├───────────────────────┼────────────────────────┼──────────┤
+  │ lib_patch/lib/*       │ $TARGET_PATH/lib/      │ 合并替换 │
+  ├───────────────────────┼────────────────────────┼──────────┤
+  │ lib_patch/conf/*      │ $TARGET_PATH/conf/     │ 合并替换 │
+  ├───────────────────────┼────────────────────────┼──────────┤
+  │ lib_patch/bin/*       │ $TARGET_PATH/bin/      │ 合并替换 │
+  ├───────────────────────┼────────────────────────┼──────────┤
+  │ lib_patch/web/*       │ $TARGET_PATH/web/      │ 全量替换 │
+  ├───────────────────────┼────────────────────────┼──────────┤
+  │ lib_patch/其他目录/*  │ $TARGET_PATH/其他目录/ │ 合并替换 │
+  ├───────────────────────┼────────────────────────┼──────────┤
+  │ extract/high/子目录/* │ $TARGET_PATH/子目录/   │ 合并替换 │
+  └───────────────────────┴────────────────────────┴──────────┘
+
+  ---
+  4. 删除逻辑详解
+
+  A. excludes 删除
+  // patch_meta_info.json
+  {
+    "excludes": [
+      "lib/ailpha-ext-aispl-v1.1.0.20_aisplweb_dev-xxx-dist.jar",
+      "lib/baas-lang-5.2.0-20260422.075305-12.jar"
+    ]
+  }
+  删除容器内 $TARGET_PATH/lib/ 下这些旧版本 jar 文件
+
+  B. 差异同步删除
+  extract/low/  有这些文件，但 extract/high/ 没有 → 删除
+  确保新镜像不会残留低版本独有的文件
+
+  ---
+  5. 使用示例
+
+  # 使用默认目标路径
+  ./create_patch_image.sh aispl-web
+
+  # 指定自定义目标路径
+  ./create_patch_image.sh aispl-web /custom/app/path
